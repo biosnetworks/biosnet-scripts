@@ -382,3 +382,4 @@ Sim, mas com responsabilidade:
 - Testa em VPS de staging primeiro
 - Tem backup antes de mexer em prod
 - Revisa o `git log` do repositório pra ver mudanças recentes
+  
