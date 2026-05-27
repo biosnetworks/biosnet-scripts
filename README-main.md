@@ -1,381 +1,384 @@
-# Scripts VPS
+# Biosnet Scripts
 
-Scripts pra preparar e configurar VPS Ubuntu LTS (22.04 e 24.04).
+Scripts ops reusáveis pra preparar VPS Ubuntu e gerenciar projetos Docker.
 
-> 📖 **Veja o [README principal](../README.md)** pra contexto geral do repositório e o fluxo completo de 8 etapas.
-
----
-
-## 📋 Scripts desta pasta
-
-Esta pasta contém **4 scripts** que cobrem todo o ciclo de preparação de VPS:
-
-| Ordem | Script | Roda como | Tempo | O que faz |
-|---|---|---|---|---|
-| 1 | `prepare-vps.sh` | root | 1 min | Cria usuário operacional não-root |
-| 2 | `bootstrap-vps.sh` | usuário | 5-10 min | Instala Docker + Node + Git + hardening |
-| 3 | `setup-github.sh` | usuário | 2 min | Configura SSH e conecta com GitHub |
-| 4 | `setup-project.sh` | usuário | 30 seg | Cria estrutura de projeto novo em /opt/ |
+Mantido por [biosnetworks](https://github.com/biosnetworks).
 
 ---
 
-## 🔧 prepare-vps.sh
+## 🚀 Quick start — do zero ao GitHub conectado em ~15 minutos
 
-**Roda como:** `root`  
-**Pré-requisito:** VPS recém-instalada com Ubuntu 22.04 ou 24.04, acesso root
-
-### O que faz
-
-1. Valida que está rodando como root
-2. Verifica versão do Ubuntu
-3. Confirma acesso à internet
-4. Atualiza pacotes essenciais (`apt update && upgrade`)
-5. Instala ferramentas mínimas: `sudo`, `curl`, `wget`, `vim`, `nano`, `openssh-server`
-6. Pergunta nome do usuário operacional (valida formato)
-7. Cria o usuário e pede senha
-8. Adiciona ao grupo `sudo`
-9. Cria `/home/<user>/.ssh/` com permissões corretas
-10. Se detectar chave SSH em `/root/.ssh/authorized_keys`, oferece copiar
-11. Ajusta `sshd_config` se tiver `AllowUsers` restritivo
-12. Mostra próximos passos
-
-### Como usar
+Numa VPS recém-instalada (só root, Ubuntu 22.04+ cru), execute as etapas em ordem:
 
 ```bash
+# ETAPA 1 — Como ROOT: prepara o terreno (1 min)
 curl -fsSL https://raw.githubusercontent.com/biosnetworks/biosnet-scripts/main/vps/prepare-vps.sh -o prep.sh
-chmod +x prep.sh
-./prep.sh
-```
+chmod +x prep.sh && ./prep.sh
 
-### Após executar
-
-```bash
-# Sai como root
+# ETAPA 2 — Sai e loga como o usuário novo
 exit
-
-# Loga com o novo usuário (em outro terminal, mantém root como backup)
 ssh <novo-usuario>@<IP-DA-VPS>
 
-# Testa que sudo funciona
-sudo whoami   # deve retornar 'root'
+# ETAPA 3 — Como USUÁRIO: stack completa (5-10 min)
+curl -fsSL https://raw.githubusercontent.com/biosnetworks/biosnet-scripts/main/vps/bootstrap-vps.sh -o bs.sh
+chmod +x bs.sh && ./bs.sh
+
+# ETAPA 4 — Sai e entra de novo (grupo docker valer)
+exit
+ssh <novo-usuario>@<IP-DA-VPS>
+docker run --rm hello-world   # confirma docker sem sudo
+
+# ETAPA 5 — Conecta GitHub (2 min)
+curl -fsSL https://raw.githubusercontent.com/biosnetworks/biosnet-scripts/main/vps/setup-github.sh -o gh.sh
+chmod +x gh.sh && ./gh.sh
+
+# ETAPA 6 — Instala Claude Code (opcional, 2 min)
+sudo npm install -g @anthropic-ai/claude-code
+claude   # autentica pelo navegador
+
+# ETAPA 7 — Cria projeto novo (30 seg)
+curl -fsSL https://raw.githubusercontent.com/biosnetworks/biosnet-scripts/main/vps/setup-project.sh -o sp.sh
+chmod +x sp.sh && ./sp.sh
+
+# ETAPA 8 — Conecta projeto com GitHub (manual, 2 min)
+cd /opt/<nome-do-projeto>
+git remote add origin git@github.com:<seu-user>/<nome-do-projeto>.git
+git push -u origin main
+```
+
+Resultado: VPS preparada, hardened, com Docker + Node + Git, conectada ao GitHub, com seu primeiro projeto rodando.
+
+---
+
+## 📋 Fluxo visual
+
+```
+ETAPA 0  VPS recém-instalada (só root)
+    │
+    ▼
+ETAPA 1  prepare-vps.sh (como root) ............... 1 min
+    │   • Atualiza pacotes essenciais
+    │   • Cria usuário operacional não-root
+    │   • Sudo + SSH key
+    │
+    ▼
+ETAPA 2  Loga como novo usuário (ssh)
+    │
+    ▼
+ETAPA 3  bootstrap-vps.sh (como usuário) .......... 5-10 min
+    │   • Hardening (UFW + fail2ban + updates)
+    │   • Docker + Compose
+    │   • Node.js 20 LTS
+    │   • Git configurado globalmente
+    │   • Chave SSH ed25519 gerada
+    │
+    ▼
+ETAPA 4  Sai e entra de novo (grupo docker valer)
+    │
+    ▼
+ETAPA 5  setup-github.sh (como usuário) ........... 2 min
+    │   • Detecta ou gera SSH key
+    │   • Mostra chave pra colar no GitHub
+    │   • Testa conexão SSH
+    │
+    ▼
+ETAPA 6  Claude Code (opcional) ................... 2 min
+    │   • Instala via npm global
+    │   • Autentica pelo navegador
+    │
+    ▼
+ETAPA 7  setup-project.sh (cria projeto) .......... 30 seg
+    │   • Estrutura padrão em /opt/<nome>/
+    │   • Git init + skill + CLAUDE.md
+    │
+    ▼
+ETAPA 8  Conecta projeto com GitHub ............... 2 min
+    │   • Cria repo no GitHub
+    │   • git remote add + push
+    │
+    ▼
+VPS PRONTA PRA USO ✓
 ```
 
 ---
 
-## 🛠️ bootstrap-vps.sh
+## 📁 Estrutura do repositório
+
+```
+biosnet-scripts/
+├── README.md                  ← este arquivo
+├── .gitignore
+│
+├── vps/                       ← scripts de bootstrap e setup
+│   ├── README.md
+│   ├── prepare-vps.sh         ← ETAPA 1 (como root)
+│   ├── bootstrap-vps.sh       ← ETAPA 3 (como usuário)
+│   ├── setup-github.sh        ← ETAPA 5 (como usuário)
+│   └── setup-project.sh       ← ETAPA 7 (como usuário)
+│
+├── docker/                    ← scripts de containers (em breve)
+│   └── README.md
+│
+├── postgres/                  ← scripts de banco (em breve)
+│   └── README.md
+│
+└── docs/                      ← guias de instalação detalhados
+    ├── INSTALL-CLAUDE-CODE.md
+    └── INSTALL-GIT.md
+```
+
+---
+
+## 🎯 Scripts disponíveis
+
+### `vps/prepare-vps.sh`
+
+**Roda como:** `root`  
+**Quando usar:** VPS recém-instalada, só com acesso root  
+**Tempo:** ~1 minuto
+
+Cria o usuário operacional não-root que você vai usar daqui pra frente.
+
+- Atualiza pacotes essenciais (sudo, curl, vim, ssh)
+- Cria usuário não-root (você define o nome)
+- Adiciona ao grupo `sudo`
+- Copia chave SSH do root (se houver)
+- Ajusta `sshd_config` se necessário
+
+### `vps/bootstrap-vps.sh`
 
 **Roda como:** usuário não-root com sudo  
-**Pré-requisito:** `prepare-vps.sh` executado (ou usuário não-root com sudo já existe)
+**Quando usar:** depois do `prepare-vps.sh`  
+**Tempo:** ~5-10 minutos
 
-### O que faz
+Instala e configura toda a stack de infraestrutura.
 
-#### 1. Validações iniciais
-- Verifica que NÃO está rodando como root
-- Verifica Ubuntu LTS
-- Confirma sudo disponível
-- Confirma internet
+- Atualiza sistema (`apt upgrade`)
+- Ferramentas essenciais (ufw, fail2ban, htop, ncdu, tmux, jq, rsync)
+- Firewall UFW (libera apenas 22, 80, 443)
+- fail2ban com proteção SSH
+- Atualizações automáticas de segurança
+- Docker oficial + Docker Compose
+- Adiciona usuário ao grupo `docker`
+- Node.js 20 LTS
+- Git configurado globalmente (interativo)
+- Chave SSH ed25519 (opcional)
 
-#### 2. Atualização do sistema
-- `apt update && apt upgrade -y`
-- Usa `DEBIAN_FRONTEND=noninteractive` pra evitar prompts
-
-#### 3. Ferramentas essenciais
-Instala ~20 pacotes que cobrem 95% das necessidades:
-- `ufw`, `fail2ban` — segurança
-- `unattended-upgrades` — updates automáticos
-- `curl`, `wget`, `git`, `vim`, `nano` — básicos
-- `htop`, `ncdu`, `jq` — diagnóstico
-- `tmux`, `screen` — sessões persistentes
-- `net-tools`, `dnsutils` — rede
-- `build-essential` — compiladores (npm precisa)
-- `zip`, `unzip`, `rsync` — utilitários
-
-#### 4. Firewall UFW
-- Reseta regras
-- Default: deny incoming, allow outgoing
-- Abre apenas: 22/tcp (SSH), 80/tcp (HTTP), 443/tcp (HTTPS)
-- Ativa o UFW
-
-#### 5. fail2ban
-- Cria `/etc/fail2ban/jail.local` com:
-  - `bantime = 1h`
-  - `findtime = 10m`
-  - `maxretry = 3` para SSH
-- Habilita e inicia o serviço
-- Faz backup se já existir config
-
-#### 6. Atualizações automáticas
-- Configura `/etc/apt/apt.conf.d/20auto-upgrades`
-- Habilita `unattended-upgrades`
-- Apenas updates de segurança (sem dist-upgrade automático)
-
-#### 7. Docker
-- Baixa script oficial: `https://get.docker.com`
-- Instala Docker Engine + Compose plugin
-- Adiciona usuário atual ao grupo `docker`
-- Habilita Docker no boot
-
-#### 8. Node.js 20 LTS
-- Adiciona repositório NodeSource
-- Instala `nodejs` (inclui npm)
-- Confere versões
-
-#### 9. Configuração do Git
-- Pergunta `user.name` e `user.email` (interativo)
-- Define `init.defaultBranch = main`
-- Define `push.default = current`
-- Define `pull.rebase = false`
-- Define cores e editor padrão
-
-#### 10. Chave SSH (opcional)
-- Pergunta se quer gerar `~/.ssh/id_ed25519`
-- Sem passphrase (apropriado pra VPS dedicada)
-- Mostra a chave pública pra adicionar no GitHub depois
-
-### Como usar
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/biosnetworks/biosnet-scripts/main/vps/bootstrap-vps.sh -o bs.sh
-chmod +x bs.sh
-./bs.sh
-```
-
-### Após executar
-
-```bash
-# Sai e entra de novo (necessário pro grupo docker valer)
-exit
-ssh <usuario>@<IP-DA-VPS>
-
-# Testa Docker sem sudo
-docker run --rm hello-world
-
-# Testa outras ferramentas
-node --version
-git --version
-sudo ufw status
-sudo fail2ban-client status sshd
-```
-
----
-
-## 🔗 setup-github.sh
+### `vps/setup-github.sh`
 
 **Roda como:** usuário não-root  
-**Pré-requisito:** Git instalado e configurado (vem do `bootstrap-vps.sh`)
+**Quando usar:** depois do `bootstrap-vps.sh`  
+**Tempo:** ~2 minutos
 
-### O que faz
+Conecta sua VPS ao GitHub via SSH.
 
-1. Valida que NÃO é root
-2. Verifica que Git está instalado e configurado
-3. Confirma acesso a github.com
-4. Detecta se já existe `~/.ssh/id_ed25519`:
-   - Se sim, reutiliza
-   - Se não, gera nova com `ssh-keygen -t ed25519`
-5. Sugere título descritivo (ex: `vps73-20260527`)
-6. Mostra a chave pública pra você copiar
-7. Aguarda você adicionar no GitHub
-8. Adiciona `github.com` aos `known_hosts` automaticamente (sem prompt)
-9. Testa autenticação SSH (`ssh -T git@github.com`)
-10. Detecta sucesso ("Hi USERNAME!") e mostra próximos passos
-11. Em caso de falha, oferece retry
+- Detecta ou gera chave SSH ed25519
+- Mostra a chave pública pra você colar em github.com/settings/keys
+- Aguarda você adicionar
+- Testa conexão (`ssh -T git@github.com`)
+- Mostra próximos passos
 
-### Como usar
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/biosnetworks/biosnet-scripts/main/vps/setup-github.sh -o gh.sh
-chmod +x gh.sh
-./gh.sh
-```
-
-### Sucesso esperado
-
-```
-Hi seu-username! You've successfully authenticated, but GitHub does not provide shell access.
-
-[OK]      🎉 Autenticação com GitHub funcionou!
-[OK]      Usuário GitHub detectado: seu-username
-```
-
-### Após executar
-
-Daqui pra frente você pode:
-
-```bash
-# Clonar repos privados
-git clone git@github.com:seu-user/repo-privado.git
-
-# Conectar projeto local a repo remoto
-cd /opt/meu-projeto
-git remote add origin git@github.com:seu-user/meu-projeto.git
-git push -u origin main
-```
-
----
-
-## 📦 setup-project.sh
+### `vps/setup-project.sh`
 
 **Roda como:** usuário não-root  
-**Pré-requisito:** Docker e Git instalados (vêm do `bootstrap-vps.sh`)
+**Quando usar:** quando quiser criar um projeto novo  
+**Tempo:** ~30 segundos
 
-### O que faz
+Cria a estrutura padrão de projeto Docker em `/opt/<nome>/`.
 
-#### 1. Coleta informações (interativo)
-- Nome do projeto (valida formato: lowercase, hífen, números)
-- Short name pra containers (sugere baseado no nome)
-- Descrição curta
-- Domínio principal (opcional)
-
-#### 2. Cria estrutura em /opt/<nome>/
-
-```
-/opt/<nome>/
-├── api/
-├── worker/
-├── webhook/
-├── frontend/
-├── ixc-adapter/
-├── db/
-│   ├── migrations/
-│   └── backups/
-├── caddy/
-├── scripts/
-├── docs/
-├── secrets/
-├── .claude/skills/<nome>-ops/
-└── volumes/
-    ├── postgres/
-    ├── redis/
-    ├── caddy-data/
-    └── caddy-config/
-```
-
-#### 3. Cria arquivos base
-- `.gitignore` completo (Python, Node, Docker, secrets)
-- `.env.example` com variáveis comuns
+- Estrutura de pastas: api/, worker/, webhook/, frontend/, db/migrations/, caddy/, scripts/, docs/, volumes/
+- `.gitignore` completo
+- `.env.example` template
 - `README.md` com info do projeto
 - `CLAUDE.md` template (memória institucional pro Claude Code)
+- Skill local em `.claude/skills/<nome>-ops/SKILL.md`
+- Git init + branch main + primeiro commit
+- Docs placeholders (DEPLOY, RUNBOOK, ARCHITECTURE)
 
-#### 4. Cria skill local
-- `.claude/skills/<nome>-ops/SKILL.md`
-- Pré-preenchida com convenções do projeto
+---
 
-#### 5. Inicializa Git
-- `git init`
-- `git branch -m main`
-- Primeiro commit automático
+## 💡 Princípios de design
 
-#### 6. Cria docs placeholders
-- `docs/DEPLOY.md`
-- `docs/RUNBOOK.md`
-- `docs/ARCHITECTURE.md`
+Todo script nesse repositório segue:
 
-### Como usar
+### Idempotência
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/biosnetworks/biosnet-scripts/main/vps/setup-project.sh -o sp.sh
-chmod +x sp.sh
-./sp.sh
+Pode rodar 100x, mesmo resultado, sem quebrar. O script detecta o que já está feito:
+
+- Docker já instalado? Pula.
+- Usuário já existe? Pula criação.
+- Já está no grupo sudo? Não duplica.
+- Skill já existe? Preserva.
+
+### Validação antes de agir
+
+Cada script verifica pré-requisitos no início:
+
+- **prepare-vps.sh**: precisa ser root, Ubuntu LTS, internet
+- **bootstrap-vps.sh**: NÃO pode ser root, precisa sudo, internet
+- **setup-github.sh**: precisa Git instalado e configurado
+- **setup-project.sh**: precisa Docker e Git instalados
+
+### Logging colorido e estruturado
+
+```
+[INFO]    Mensagens informativas
+[OK]      Operações bem-sucedidas
+[WARN]    Avisos não-críticos
+[ERROR]   Erros que param a execução
 ```
 
-### Após executar
+Cabeçalhos de seção facilitam o acompanhamento:
 
-```bash
-cd /opt/<nome-do-projeto>
-
-# Conecta com GitHub
-git remote add origin git@github.com:seu-user/<nome>.git
-git push -u origin main
-
-# Edita o CLAUDE.md com info real
-nano CLAUDE.md
-
-# Cria .env a partir do template
-cp .env.example .env
-nano .env
-
-# Quando estiver pronto, sobe a stack
-docker compose up -d
+```
+════════════════════════════════════════════════════════════════
+  3/8  Configurando firewall (UFW)
+════════════════════════════════════════════════════════════════
 ```
 
----
+### Confirmação antes de operações destrutivas
 
-## 🐛 Troubleshooting
+```bash
+read -rp "Vai resetar configuração X. Continuar? [s/N] " resp
+```
 
-### prepare-vps.sh
+### Não-destrutivo por padrão
 
-**"Este script DEVE ser executado como root."**
-- Confirma que está logado como root: `whoami`
-- Se está como outro usuário, sai e loga como root, ou usa `sudo`
+Faz backup com timestamp antes de sobrescrever configs:
 
-**Travou em `adduser`**
-- Provavelmente sistema pediu input que não foi respondido
-- Mata o processo (Ctrl+C) e roda de novo (é idempotente)
+```bash
+sudo cp /etc/fail2ban/jail.local /etc/fail2ban/jail.local.bak.$(date +%Y%m%d_%H%M%S)
+```
 
-### bootstrap-vps.sh
+### `set -euo pipefail` no topo de todo `.sh`
 
-**"NÃO execute este script como root"**
-- Você ainda está como root. Roda o `prepare-vps.sh` primeiro pra criar usuário não-root.
-
-**"Sudo disponível" pede senha repetidamente**
-- Roda `sudo -v` antes de executar o script — vai pedir senha 1x e cachear
-
-**Travou no `apt upgrade`**
-- Algum prompt interativo de configuração apareceu (raro com `DEBIAN_FRONTEND=noninteractive`)
-- Mata o script e roda manualmente: `sudo apt upgrade` e responde os prompts
-- Depois roda o bootstrap de novo (idempotente)
-
-**Docker instalou mas `docker ps` pede sudo**
-- Você não saiu e entrou de novo na sessão SSH
-- Faz: `exit` e `ssh usuario@ip` novamente
-- Ou força com: `newgrp docker`
-
-### setup-github.sh
-
-**"Permission denied (publickey)" no teste**
-- Chave foi adicionada incorretamente no GitHub (faltou copiar alguma parte)
-- Confere em `github.com/settings/keys` que a chave está lá
-- Roda o script de novo, ele oferece retry
-
-**Travou em "Pressione ENTER..."**
-- Você ainda não terminou de adicionar a chave no GitHub
-- Termina o processo no navegador e aperta Enter
-
-### setup-project.sh
-
-**"Docker não instalado"**
-- Roda `bootstrap-vps.sh` primeiro
-- Confere com `docker --version`
-
-**"Git sem user.name ou user.email globais"**
-- O `bootstrap-vps.sh` configura isso, mas se pulou:
-  ```bash
-  git config --global user.name "Seu Nome"
-  git config --global user.email "seu@email.com"
-  ```
-
-**"/opt/<projeto>/ já existe e não está vazio"**
-- Você já tentou criar esse projeto antes
-- Aceita continuar (é idempotente) ou escolhe outro nome
+- `-e`: para na primeira falha
+- `-u`: erro se usar variável não definida
+- `-o pipefail`: falha de pipe propaga
 
 ---
 
-## 🗺️ Roadmap desta pasta
+## 🤔 Por que esses scripts funcionam sem Git instalado?
 
-- ✅ `prepare-vps.sh` — pré-bootstrap
-- ✅ `bootstrap-vps.sh` — stack completa
-- ✅ `setup-github.sh` — conecta GitHub
-- ✅ `setup-project.sh` — cria projeto novo
-- ⏳ `harden-ssh.sh` — desabilita senha SSH (só permite chave) após confirmação
-- ⏳ `add-swap.sh` — adiciona arquivo de swap em VPS pequenas (< 4GB RAM)
-- ⏳ `rotate-logs.sh` — configura logrotate pra logs do Docker
-- ⏳ `change-hostname.sh` — muda hostname de forma idempotente
-- ⏳ `migrate-vps.sh` — migra `/opt/` de uma VPS pra outra via rsync
+`curl` vem por padrão no Ubuntu, mas Git **não**. Como então o primeiro script chega na VPS?
+
+Resposta: `raw.githubusercontent.com` é um **CDN HTTP simples** que serve arquivos de repos públicos. Não exige Git, não exige autenticação. É a mesma coisa que clicar em "Raw" no GitHub.
+
+Por isso este repositório é **público** — ele é o "ovo" que precede a "galinha" (Git instalado).
+
+Repositórios com código de negócio devem ser **privados**, mas os de bootstrap precisam ser públicos pra funcionar.
 
 ---
 
-## 📚 Veja também
+## 📚 Documentação
 
-- [README principal do repo](../README.md)
-- [Guia de instalação do Git](../docs/INSTALL-GIT.md)
-- [Guia de instalação do Claude Code](../docs/INSTALL-CLAUDE-CODE.md)
+- **[Setup completo de VPS](vps/README.md)** — detalhes de cada etapa
+- **[Instalação Git + GitHub](docs/INSTALL-GIT.md)** — passo a passo manual (referência)
+- **[Instalação Claude Code](docs/INSTALL-CLAUDE-CODE.md)** — IA de pair-programming na VPS
+
+---
+
+## 🗺️ Roadmap
+
+### Em produção ✅
+
+- `vps/prepare-vps.sh` — pré-bootstrap (cria usuário)
+- `vps/bootstrap-vps.sh` — stack completa
+- `vps/setup-github.sh` — conecta GitHub
+- `vps/setup-project.sh` — cria projeto novo
+
+### Planejado ⏳
+
+#### VPS
+- `vps/harden-ssh.sh` — desabilita senha SSH (só permite chave)
+- `vps/add-swap.sh` — adiciona arquivo de swap em VPS pequenas
+- `vps/rotate-logs.sh` — configura logrotate pra logs do Docker
+- `vps/change-hostname.sh` — muda hostname de forma idempotente
+
+#### Docker
+- `docker/cleanup.sh` — remove containers parados + imagens dangling
+- `docker/backup-volumes.sh` — tar.gz de volumes pra `/opt/backups/`
+- `docker/healthcheck-all.sh` — verifica saúde de todos os containers
+- `docker/prune-safe.sh` — `docker system prune` com confirmação
+
+#### Postgres
+- `postgres/backup-all.sh` — `pg_dump` de todos os bancos em containers
+- `postgres/restore.sh` — restore interativo a partir de dump
+- `postgres/vacuum.sh` — manutenção periódica
+- `postgres/check-bloat.sh` — diagnóstico de tabelas inchadas
+
+#### Monitoring
+- `monitoring/disk-alert.sh` — alerta de disco >80% via webhook
+- `monitoring/container-health.sh` — alerta containers caídos
+
+---
+
+## 🤝 Contribuindo
+
+Esses scripts evoluem com os aprendizados. Pra contribuir:
+
+1. **Fork ou clone**: `git clone git@github.com:biosnetworks/biosnet-scripts.git`
+2. **Cria branch**: `git checkout -b feat/novo-script`
+3. **Segue os princípios**: idempotência, validações, logging colorido, `set -euo pipefail`
+4. **Atualiza o README** da pasta correspondente
+5. **Testa idempotência**: roda 2x sem quebrar
+6. **Commit com Conventional Commits**:
+   - `feat(vps): adiciona harden-ssh.sh`
+   - `fix(bootstrap): corrige detecção de SSH key`
+   - `docs: atualiza README com novo fluxo`
+7. **Push + Pull Request**
+
+---
+
+## 📜 Licença
+
+MIT — use, modifique, distribua livremente.
+
+---
+
+## ❓ FAQ
+
+### Posso usar em VPS de outros provedores?
+
+Sim. Funciona em qualquer Ubuntu LTS 22.04+ de qualquer provedor: Hostinger, Hetzner, DigitalOcean, AWS EC2, Google Cloud, Oracle Cloud, Azure, etc.
+
+### Funciona em ARM (Raspberry Pi, AWS Graviton)?
+
+Os scripts são compatíveis com ARM64 e AMD64. Docker e Node 20 LTS têm builds pra ambos.
+
+### Posso adaptar pra Debian?
+
+A maioria funciona, mas alguns detalhes mudam (nome de pacote, versão do unattended-upgrades). Não foi testado oficialmente em Debian — abra issue se for testar.
+
+### Por que não usar Ansible/Terraform?
+
+Pra projeto solo ou time pequeno, shell scripts no GitHub fazem 80% do que essas ferramentas fazem, com 10% da complexidade. Quando o time crescer ou a infra complexificar, vale migrar pra Ansible. Por enquanto, simplicidade vence.
+
+### Posso rodar tudo de uma vez em um comando?
+
+Tecnicamente sim, mas **não recomendo**:
+
+```bash
+# NÃO faz isso na primeira vez:
+curl -fsSL .../prepare-vps.sh | bash && exit  # perde a sessão!
+```
+
+A separação em etapas é proposital — você precisa fazer **logout/login** entre prepare e bootstrap pra o usuário novo ser usado, e entre bootstrap e setup-github pra grupo docker valer.
+
+### Esqueci a senha do usuário criado, e agora?
+
+Como root (sessão de backup que você não fechou):
+
+```bash
+passwd alexandreluna
+```
+
+Define nova senha. Anota num gerenciador.
+
+### Posso usar esses scripts em produção real?
+
+Sim, mas com responsabilidade:
+- Sempre lê o script antes de rodar (use `less script.sh`)
+- Testa em VPS de staging primeiro
+- Tem backup antes de mexer em prod
+- Revisa o `git log` do repositório pra ver mudanças recentes
