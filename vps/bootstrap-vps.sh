@@ -2,40 +2,28 @@
 #
 # bootstrap-vps.sh
 # ────────────────────────────────────────────────────────────────────────────
-# Bootstrap de VPS Ubuntu 24.04 LTS
+# Bootstrap de VPS Ubuntu LTS (22.04 ou 24.04)
 #
-# Faz o setup completo de uma VPS recém-instalada:
-#   - Update do sistema
-#   - Ferramentas essenciais (ufw, fail2ban, htop, ncdu, tmux, etc.)
-#   - Firewall UFW (apenas 22, 80, 443)
-#   - fail2ban com proteção SSH
-#   - Atualizações automáticas de segurança
-#   - Docker oficial + Compose
-#   - Node.js 20 LTS
-#   - Configurações de Git globais
-#   - Geração de chave SSH (opcional)
+# v3 - Correção do bug de leitura de stdin (lia "lixo" e abortava sem motivo).
+#      Agora lê DIRETO de /dev/tty e sanitiza inputs.
 #
 # Pré-requisitos:
-#   - Ubuntu 24.04 LTS limpo
-#   - Usuário NÃO-ROOT com sudo
+#   - Ubuntu 22.04 ou 24.04 LTS
+#   - Usuário NÃO-ROOT com sudo (use prepare-vps.sh antes se não tiver)
 #   - Acesso à internet
 #
-# Uso:
-#   curl -fsSL https://raw.githubusercontent.com/SEU_USER/scripts/main/bootstrap-vps.sh -o bootstrap.sh
-#   chmod +x bootstrap.sh
-#   ./bootstrap.sh
+# Uso CORRETO:
+#   curl -fsSL https://raw.githubusercontent.com/biosnetworks/biosnet-scripts/main/vps/bootstrap-vps.sh -o bs.sh
+#   chmod +x bs.sh
+#   ./bs.sh
 #
-# OU localmente:
-#   ./bootstrap-vps.sh
+# Uso INCORRETO (NÃO funciona — script é interativo):
+#   curl ... | bash    # stdin fica ocupado com o script
 #
 # É IDEMPOTENTE: pode ser rodado várias vezes sem causar problemas.
 # ────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
-
-# ────────────────────────────────────────────────────────────────────────────
-# CORES E LOGGING
-# ────────────────────────────────────────────────────────────────────────────
 
 readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
@@ -57,31 +45,104 @@ log_section() {
 }
 
 # ────────────────────────────────────────────────────────────────────────────
+# HELPER: ask_yes_no
+# Lê resposta s/n do terminal de forma robusta:
+#   - Lê direto de /dev/tty (ignora "lixo" no stdin)
+#   - Sanitiza caracteres invisíveis (\r, \n, espaços)
+#   - Pega só o primeiro caractere
+#   - Aceita s/S/y/Y como sim
+# ────────────────────────────────────────────────────────────────────────────
+
+ask_yes_no() {
+    local prompt="$1"
+    local default="${2:-N}"
+    local resp=""
+
+    if [[ -r /dev/tty ]]; then
+        read -rp "$prompt" resp < /dev/tty
+    else
+        read -rp "$prompt" resp
+    fi
+
+    resp="${resp//$'\r'/}"
+    resp="${resp//$'\n'/}"
+    resp="${resp// /}"
+    resp="${resp:0:1}"
+
+    [[ -z "$resp" ]] && resp="$default"
+
+    if [[ "$resp" =~ ^[sSyY]$ ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Helper pra ler entrada de texto (não-binária) também de /dev/tty
+read_input() {
+    local prompt="$1"
+    local var_name="$2"
+    local input=""
+
+    if [[ -r /dev/tty ]]; then
+        read -rp "$prompt" input < /dev/tty
+    else
+        read -rp "$prompt" input
+    fi
+
+    # Sanitiza
+    input="${input//$'\r'/}"
+    input="${input//$'\n'/}"
+
+    # Atribui à variável passada por nome
+    printf -v "$var_name" '%s' "$input"
+}
+
+# ────────────────────────────────────────────────────────────────────────────
 # VALIDAÇÕES INICIAIS
 # ────────────────────────────────────────────────────────────────────────────
 
 check_ubuntu_version() {
     if ! [[ -f /etc/os-release ]]; then
-        log_error "Não foi possível detectar o SO. Esperado: Ubuntu 24.04."
+        log_error "Não foi possível detectar o SO. Esperado: Ubuntu 22.04 ou 24.04."
         exit 1
     fi
 
-    local version
+    local version distro
     version=$(grep -E '^VERSION_ID=' /etc/os-release | cut -d'"' -f2)
-    
-    if [[ "$version" != "24.04" ]]; then
-        log_warn "Esperado Ubuntu 24.04, detectado: $version"
-        read -rp "Continuar mesmo assim? [s/N] " resp
-        [[ ! "$resp" =~ ^[sS]$ ]] && exit 1
-    else
-        log_ok "Ubuntu 24.04 detectado."
+    distro=$(grep -E '^ID=' /etc/os-release | cut -d= -f2 | tr -d '"')
+
+    if [[ "$distro" != "ubuntu" ]]; then
+        log_warn "Distro detectada: $distro (esperado: ubuntu)"
+        if ! ask_yes_no "Continuar mesmo assim? [s/N] "; then
+            log_info "Cancelado pelo usuário."
+            exit 0
+        fi
+        return 0
     fi
+
+    case "$version" in
+        22.04)
+            log_ok "Ubuntu $version LTS detectado (suportado)."
+            ;;
+        24.04)
+            log_ok "Ubuntu $version LTS detectado (suportado, recomendado)."
+            ;;
+        *)
+            log_warn "Ubuntu $version não é LTS testada (suportadas: 22.04, 24.04)."
+            if ! ask_yes_no "Continuar mesmo assim? [s/N] "; then
+                log_info "Cancelado pelo usuário."
+                exit 0
+            fi
+            ;;
+    esac
 }
 
 check_not_root() {
     if [[ $EUID -eq 0 ]]; then
-        log_error "NÃO execute este script como root."
-        log_error "Use um usuário comum com sudo. Ex: ./bootstrap-vps.sh"
+        log_error "NÃO execute como root."
+        log_error "Use um usuário comum com sudo. Se a VPS só tem root,"
+        log_error "rode primeiro o prepare-vps.sh."
         exit 1
     fi
     log_ok "Executando como usuário '$USER' (não-root)."
@@ -89,7 +150,7 @@ check_not_root() {
 
 check_sudo() {
     if ! sudo -n true 2>/dev/null; then
-        log_info "Este script precisa de sudo. Você pode ser solicitado pela senha."
+        log_info "Este script precisa de sudo. Pode ser solicitado pela senha."
         if ! sudo true; then
             log_error "Falha ao obter sudo."
             exit 1
@@ -100,7 +161,7 @@ check_sudo() {
 
 check_internet() {
     if ! curl -fsSL --max-time 5 https://1.1.1.1 >/dev/null 2>&1; then
-        log_error "Sem internet. Verifique a conexão."
+        log_error "Sem internet."
         exit 1
     fi
     log_ok "Internet OK."
@@ -115,7 +176,7 @@ show_banner() {
 
    ╔══════════════════════════════════════════════════════════╗
    ║                                                          ║
-   ║      VPS Bootstrap - Ubuntu 24.04 LTS                    ║
+   ║      VPS Bootstrap - Ubuntu LTS (22.04 / 24.04)          ║
    ║                                                          ║
    ║      Hardening + Docker + Node.js + Git                  ║
    ║                                                          ║
@@ -132,113 +193,75 @@ confirm_execution() {
     echo "  • Configurar fail2ban contra brute-force SSH"
     echo "  • Ativar atualizações automáticas de segurança"
     echo ""
-    read -rp "Continuar? [s/N] " resp
-    if [[ ! "$resp" =~ ^[sS]$ ]]; then
+    if ! ask_yes_no "Continuar? [s/N] "; then
         log_info "Cancelado pelo usuário."
         exit 0
     fi
 }
 
 # ────────────────────────────────────────────────────────────────────────────
-# ETAPA 1 — ATUALIZAÇÃO DO SISTEMA
+# ETAPAS 1-7 (idênticas à v2)
 # ────────────────────────────────────────────────────────────────────────────
 
 step_update_system() {
     log_section "1/8  Atualizando o sistema"
-
     log_info "apt update..."
     sudo apt-get update -qq
-
     log_info "apt upgrade (pode demorar)..."
     sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq \
         -o Dpkg::Options::="--force-confdef" \
         -o Dpkg::Options::="--force-confold"
-
     log_ok "Sistema atualizado."
 }
 
-# ────────────────────────────────────────────────────────────────────────────
-# ETAPA 2 — FERRAMENTAS ESSENCIAIS
-# ────────────────────────────────────────────────────────────────────────────
-
 step_install_tools() {
     log_section "2/8  Instalando ferramentas essenciais"
-
     local packages=(
-        ufw                       # firewall
-        fail2ban                  # proteção brute-force
-        unattended-upgrades       # updates automáticos
-        apt-listchanges           # changelog dos updates
-        ca-certificates           # certs HTTPS
-        curl wget                 # downloads
-        git                       # versionamento
-        vim nano                  # editores
-        tmux screen               # sessões persistentes
-        htop ncdu                 # monitoramento
-        jq                        # parsing JSON
-        net-tools dnsutils        # rede (netstat, dig)
-        build-essential           # compiladores (npm precisa)
-        software-properties-common
-        gnupg                     # chaves GPG
-        lsb-release               # detectar distro
-        zip unzip                 # compactação
-        rsync                     # backup
+        ufw fail2ban
+        unattended-upgrades apt-listchanges
+        ca-certificates curl wget
+        git vim nano tmux screen
+        htop ncdu jq
+        net-tools dnsutils
+        build-essential software-properties-common
+        gnupg lsb-release
+        zip unzip rsync
     )
-
     log_info "Instalando ${#packages[@]} pacotes..."
     sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${packages[@]}"
-
     log_ok "Ferramentas instaladas."
 }
 
-# ────────────────────────────────────────────────────────────────────────────
-# ETAPA 3 — FIREWALL UFW
-# ────────────────────────────────────────────────────────────────────────────
-
 step_configure_ufw() {
     log_section "3/8  Configurando firewall (UFW)"
-
-    log_info "Resetando regras..."
     sudo ufw --force reset >/dev/null 2>&1
-
-    log_info "Aplicando defaults: deny in, allow out..."
     sudo ufw default deny incoming >/dev/null
     sudo ufw default allow outgoing >/dev/null
-
-    log_info "Abrindo portas: 22 (SSH), 80 (HTTP), 443 (HTTPS)..."
     sudo ufw allow 22/tcp comment 'SSH' >/dev/null
     sudo ufw allow 80/tcp comment 'HTTP' >/dev/null
     sudo ufw allow 443/tcp comment 'HTTPS' >/dev/null
-
-    log_info "Ativando UFW..."
     sudo ufw --force enable >/dev/null
-
     log_ok "Firewall ativo."
     sudo ufw status verbose
 }
 
-# ────────────────────────────────────────────────────────────────────────────
-# ETAPA 4 — FAIL2BAN
-# ────────────────────────────────────────────────────────────────────────────
-
 step_configure_fail2ban() {
     log_section "4/8  Configurando fail2ban"
-
     if [[ -f /etc/fail2ban/jail.local ]]; then
-        log_warn "jail.local já existe. Fazendo backup..."
         sudo cp /etc/fail2ban/jail.local "/etc/fail2ban/jail.local.bak.$(date +%Y%m%d_%H%M%S)"
     fi
 
-    sudo tee /etc/fail2ban/jail.local > /dev/null <<'EOF'
+    local backend="systemd"
+    local ubuntu_version
+    ubuntu_version=$(grep -E '^VERSION_ID=' /etc/os-release | cut -d'"' -f2)
+    [[ "$ubuntu_version" == "22.04" ]] && backend="auto"
+
+    sudo tee /etc/fail2ban/jail.local > /dev/null <<EOF
 [DEFAULT]
-# Ban por 1 hora
 bantime  = 1h
-# Janela de observação: 10 minutos
 findtime = 10m
-# Máximo de tentativas antes do ban
 maxretry = 5
-# Backend recomendado pra Ubuntu 24
-backend  = systemd
+backend  = $backend
 
 [sshd]
 enabled  = true
@@ -249,107 +272,70 @@ EOF
 
     sudo systemctl enable fail2ban >/dev/null 2>&1
     sudo systemctl restart fail2ban
-
     sleep 2
-    log_ok "fail2ban configurado."
-    sudo fail2ban-client status 2>/dev/null || true
+    log_ok "fail2ban configurado (backend: $backend)."
 }
 
-# ────────────────────────────────────────────────────────────────────────────
-# ETAPA 5 — ATUALIZAÇÕES AUTOMÁTICAS
-# ────────────────────────────────────────────────────────────────────────────
-
 step_unattended_upgrades() {
-    log_section "5/8  Habilitando atualizações automáticas de segurança"
-
+    log_section "5/8  Atualizações automáticas de segurança"
     sudo tee /etc/apt/apt.conf.d/20auto-upgrades > /dev/null <<'EOF'
 APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
 APT::Periodic::AutocleanInterval "7";
 EOF
-
     sudo systemctl enable unattended-upgrades >/dev/null 2>&1
     sudo systemctl restart unattended-upgrades
-
-    log_ok "Atualizações automáticas configuradas (apenas security)."
+    log_ok "Atualizações automáticas ativadas."
 }
-
-# ────────────────────────────────────────────────────────────────────────────
-# ETAPA 6 — DOCKER
-# ────────────────────────────────────────────────────────────────────────────
 
 step_install_docker() {
     log_section "6/8  Instalando Docker"
-
     if command -v docker >/dev/null 2>&1; then
         log_ok "Docker já instalado: $(docker --version)"
     else
-        log_info "Baixando script oficial do Docker..."
         curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
-
-        log_info "Executando instalação..."
         sudo sh /tmp/get-docker.sh >/dev/null 2>&1
         rm /tmp/get-docker.sh
-
         log_ok "Docker instalado: $(docker --version)"
     fi
 
-    # Adiciona usuário ao grupo docker (idempotente)
     if ! groups "$USER" | grep -q docker; then
-        log_info "Adicionando $USER ao grupo 'docker'..."
         sudo usermod -aG docker "$USER"
-        log_warn "Você precisará SAIR E LOGAR DE NOVO para o grupo 'docker' valer."
+        log_warn "SAIA E LOGUE DE NOVO para o grupo 'docker' valer."
     else
         log_ok "$USER já está no grupo 'docker'."
     fi
 
-    # Habilita Docker no boot
     sudo systemctl enable docker >/dev/null 2>&1
 
-    # Confere Compose
     if docker compose version >/dev/null 2>&1; then
         log_ok "Docker Compose: $(docker compose version | head -1)"
-    else
-        log_error "Docker Compose plugin não encontrado."
     fi
 }
 
-# ────────────────────────────────────────────────────────────────────────────
-# ETAPA 7 — NODE.JS
-# ────────────────────────────────────────────────────────────────────────────
-
 step_install_nodejs() {
     log_section "7/8  Instalando Node.js 20 LTS"
-
     if command -v node >/dev/null 2>&1; then
         local current_version
         current_version=$(node --version)
         if [[ "$current_version" == v20.* ]]; then
             log_ok "Node.js 20 já instalado: $current_version"
             return
-        else
-            log_warn "Outra versão do Node detectada: $current_version (será substituída)"
         fi
     fi
-
-    log_info "Adicionando repositório NodeSource..."
     curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - >/dev/null 2>&1
-
-    log_info "Instalando nodejs..."
     sudo apt-get install -y -qq nodejs
-
     log_ok "Node.js: $(node --version)"
     log_ok "npm:     $(npm --version)"
 }
 
 # ────────────────────────────────────────────────────────────────────────────
-# ETAPA 8 — CONFIGURAÇÕES GIT
+# ETAPA 8 — GIT (com read_input)
 # ────────────────────────────────────────────────────────────────────────────
 
 step_configure_git() {
     log_section "8/8  Configurando Git (global)"
 
-    # Pega configs atuais (se existem)
     local current_name current_email
     current_name=$(git config --global user.name 2>/dev/null || echo "")
     current_email=$(git config --global user.email 2>/dev/null || echo "")
@@ -358,12 +344,15 @@ step_configure_git() {
         log_ok "Git já configurado:"
         echo "       user.name:  $current_name"
         echo "       user.email: $current_email"
-        read -rp "Deseja reconfigurar? [s/N] " resp
-        [[ ! "$resp" =~ ^[sS]$ ]] && { configure_git_defaults; return; }
+        if ! ask_yes_no "Deseja reconfigurar? [s/N] "; then
+            configure_git_defaults
+            return
+        fi
     fi
 
-    read -rp "Git user.name (ex: 'seuusuario'): " git_name
-    read -rp "Git user.email (use o do GitHub): " git_email
+    local git_name git_email
+    read_input "Git user.name (ex: 'seuusuario'): " git_name
+    read_input "Git user.email (use o do GitHub): " git_email
 
     git config --global user.name "$git_name"
     git config --global user.email "$git_email"
@@ -384,7 +373,7 @@ configure_git_defaults() {
 }
 
 # ────────────────────────────────────────────────────────────────────────────
-# ETAPA OPCIONAL — CHAVE SSH PARA GITHUB
+# ETAPA OPCIONAL — CHAVE SSH
 # ────────────────────────────────────────────────────────────────────────────
 
 step_ssh_key() {
@@ -395,45 +384,32 @@ step_ssh_key() {
     if [[ -f "$ssh_key" ]]; then
         log_ok "Chave SSH já existe: $ssh_key"
         echo ""
-        log_info "Chave PÚBLICA (cole no GitHub em https://github.com/settings/keys):"
-        echo ""
+        log_info "Chave PÚBLICA (cole no GitHub):"
         cat "$ssh_key.pub"
         echo ""
         return
     fi
 
-    read -rp "Gerar chave SSH ed25519 para GitHub agora? [S/n] " resp
-    if [[ "$resp" =~ ^[nN]$ ]]; then
-        log_info "Pulado. Para gerar depois:"
-        echo "   ssh-keygen -t ed25519 -C 'seu@email.com'"
+    if ! ask_yes_no "Gerar chave SSH ed25519 agora? [S/n] " "S"; then
+        log_info "Pulado. Use o setup-github.sh depois."
         return
     fi
 
     local git_email
     git_email=$(git config --global user.email 2>/dev/null || echo "")
-    if [[ -z "$git_email" ]]; then
-        read -rp "Email para a chave SSH: " git_email
-    fi
 
-    log_info "Gerando chave (sem passphrase pra automação)..."
+    mkdir -p "$HOME/.ssh"
+    chmod 700 "$HOME/.ssh"
     ssh-keygen -t ed25519 -C "$git_email" -f "$ssh_key" -N "" >/dev/null
 
-    chmod 700 "$HOME/.ssh"
     chmod 600 "$ssh_key"
     chmod 644 "$ssh_key.pub"
 
-    log_ok "Chave SSH gerada."
+    log_ok "Chave gerada."
     echo ""
-    log_info "═══ COPIE A CHAVE PÚBLICA ABAIXO ═══"
-    echo ""
+    log_info "═══ COPIE A CHAVE PÚBLICA ═══"
     cat "$ssh_key.pub"
-    echo ""
     log_info "═══ FIM DA CHAVE ═══"
-    echo ""
-    echo "Próximos passos:"
-    echo "  1. Acesse: https://github.com/settings/keys"
-    echo "  2. New SSH key → cola o conteúdo acima"
-    echo "  3. Teste com: ssh -T git@github.com"
     echo ""
 }
 
@@ -446,51 +422,35 @@ show_summary() {
 
     echo "Estado da VPS:"
     echo ""
-
     printf "  %-25s %s\n" "Usuário:"      "$USER"
     printf "  %-25s %s\n" "Hostname:"     "$(hostname)"
     printf "  %-25s %s\n" "IP público:"   "$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || echo 'N/A')"
     printf "  %-25s %s\n" "OS:"           "$(lsb_release -ds 2>/dev/null || echo 'N/A')"
-    printf "  %-25s %s\n" "Kernel:"       "$(uname -r)"
-
     echo ""
     echo "Software instalado:"
     echo ""
-
     printf "  %-25s %s\n" "Docker:"         "$(docker --version 2>/dev/null || echo 'N/A')"
     printf "  %-25s %s\n" "Docker Compose:" "$(docker compose version 2>/dev/null | head -1 || echo 'N/A')"
     printf "  %-25s %s\n" "Node.js:"        "$(node --version 2>/dev/null || echo 'N/A')"
-    printf "  %-25s %s\n" "npm:"            "$(npm --version 2>/dev/null || echo 'N/A')"
     printf "  %-25s %s\n" "Git:"            "$(git --version 2>/dev/null || echo 'N/A')"
-
     echo ""
     echo "Segurança:"
     echo ""
-
     printf "  %-25s %s\n" "UFW:"        "$(sudo ufw status | head -1)"
     printf "  %-25s %s\n" "fail2ban:"   "$(sudo systemctl is-active fail2ban)"
-    printf "  %-25s %s\n" "auto-updates:" "$(sudo systemctl is-active unattended-upgrades)"
 
     echo ""
-    log_warn "PRÓXIMOS PASSOS MANUAIS:"
+    log_warn "PRÓXIMOS PASSOS:"
     echo ""
-    echo "  1. SAIA E ENTRE DE NOVO via SSH (pra grupo 'docker' valer)"
-    echo "     exit"
-    echo "     ssh $USER@$(hostname -I | awk '{print $1}')"
+    echo "  1. SAIA E ENTRE DE NOVO via SSH (grupo docker):"
+    echo "     exit && ssh $USER@$(hostname -I | awk '{print $1}')"
     echo ""
-    echo "  2. Testa Docker sem sudo:"
+    echo "  2. Teste Docker sem sudo:"
     echo "     docker run --rm hello-world"
     echo ""
-    echo "  3. Adiciona chave SSH no GitHub (se gerou acima)"
-    echo ""
-    echo "  4. Instala Claude Code (precisa autenticação interativa):"
-    echo "     sudo npm install -g @anthropic-ai/claude-code"
-    echo "     claude"
-    echo ""
-    echo "  5. Cria estrutura do projeto:"
-    echo "     curl -fsSL <url-do-setup-project.sh> -o setup.sh"
-    echo "     chmod +x setup.sh"
-    echo "     ./setup.sh"
+    echo "  3. Conecte ao GitHub:"
+    echo "     curl -fsSL https://raw.githubusercontent.com/biosnetworks/biosnet-scripts/main/vps/setup-github.sh -o gh.sh"
+    echo "     chmod +x gh.sh && ./gh.sh"
     echo ""
 }
 
