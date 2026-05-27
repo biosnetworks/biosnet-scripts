@@ -17,9 +17,6 @@
 #   chmod +x bs.sh
 #   ./bs.sh
 #
-# Uso INCORRETO (NÃO funciona — script é interativo):
-#   curl ... | bash    # stdin fica ocupado com o script
-#
 # É IDEMPOTENTE: pode ser rodado várias vezes sem causar problemas.
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -45,12 +42,7 @@ log_section() {
 }
 
 # ────────────────────────────────────────────────────────────────────────────
-# HELPER: ask_yes_no
-# Lê resposta s/n do terminal de forma robusta:
-#   - Lê direto de /dev/tty (ignora "lixo" no stdin)
-#   - Sanitiza caracteres invisíveis (\r, \n, espaços)
-#   - Pega só o primeiro caractere
-#   - Aceita s/S/y/Y como sim
+# HELPER: ask_yes_no - lê resposta s/n direto de /dev/tty
 # ────────────────────────────────────────────────────────────────────────────
 
 ask_yes_no() {
@@ -78,7 +70,6 @@ ask_yes_no() {
     fi
 }
 
-# Helper pra ler entrada de texto (não-binária) também de /dev/tty
 read_input() {
     local prompt="$1"
     local var_name="$2"
@@ -90,11 +81,9 @@ read_input() {
         read -rp "$prompt" input
     fi
 
-    # Sanitiza
     input="${input//$'\r'/}"
     input="${input//$'\n'/}"
 
-    # Atribui à variável passada por nome
     printf -v "$var_name" '%s' "$input"
 }
 
@@ -200,7 +189,7 @@ confirm_execution() {
 }
 
 # ────────────────────────────────────────────────────────────────────────────
-# ETAPAS 1-7 (idênticas à v2)
+# ETAPAS DE INSTALAÇÃO
 # ────────────────────────────────────────────────────────────────────────────
 
 step_update_system() {
@@ -329,10 +318,6 @@ step_install_nodejs() {
     log_ok "npm:     $(npm --version)"
 }
 
-# ────────────────────────────────────────────────────────────────────────────
-# ETAPA 8 — GIT (com read_input)
-# ────────────────────────────────────────────────────────────────────────────
-
 step_configure_git() {
     log_section "8/8  Configurando Git (global)"
 
@@ -372,10 +357,6 @@ configure_git_defaults() {
     git config --global credential.helper "cache --timeout=3600"
 }
 
-# ────────────────────────────────────────────────────────────────────────────
-# ETAPA OPCIONAL — CHAVE SSH
-# ────────────────────────────────────────────────────────────────────────────
-
 step_ssh_key() {
     log_section "OPCIONAL  Gerar chave SSH para GitHub"
 
@@ -413,10 +394,6 @@ step_ssh_key() {
     echo ""
 }
 
-# ────────────────────────────────────────────────────────────────────────────
-# RESUMO FINAL
-# ────────────────────────────────────────────────────────────────────────────
-
 show_summary() {
     log_section "✓  Bootstrap concluído!"
 
@@ -453,10 +430,6 @@ show_summary() {
     echo "     chmod +x gh.sh && ./gh.sh"
     echo ""
 }
-
-# ────────────────────────────────────────────────────────────────────────────
-# MAIN
-# ────────────────────────────────────────────────────────────────────────────
 
 main() {
     show_banner
