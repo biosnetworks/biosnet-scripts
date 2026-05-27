@@ -240,10 +240,8 @@ step_configure_fail2ban() {
         sudo cp /etc/fail2ban/jail.local "/etc/fail2ban/jail.local.bak.$(date +%Y%m%d_%H%M%S)"
     fi
 
+    # systemd é o backend correto pra Ubuntu 22.04+ (lê do journal)
     local backend="systemd"
-    local ubuntu_version
-    ubuntu_version=$(grep -E '^VERSION_ID=' /etc/os-release | cut -d'"' -f2)
-    [[ "$ubuntu_version" == "22.04" ]] && backend="auto"
 
     sudo tee /etc/fail2ban/jail.local > /dev/null <<EOF
 [DEFAULT]
